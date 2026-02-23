@@ -1,4 +1,5 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Child, Grade, listChildren, listGrades, computeAverage } from '@/lib/firestore';
@@ -6,8 +7,16 @@ import AddChildForm from '@/components/AddChildForm';
 import AddGradeForm from '@/components/AddGradeForm';
 import Link from 'next/link';
 
+// ✅ nouveaux imports
+import { useUserPlan } from '@/hooks/useUserPlan';
+import UpgradeBanner from '@/components/UpgradeBanner';
+
 export default function DashboardPage() {
   const { user } = useAuth();
+
+  // ✅ récupère le plan en temps réel
+  const { plan, loading: planLoading } = useUserPlan();
+
   const [children, setChildren] = useState<Child[]>([]);
   const [loading, setLoading]   = useState(true);
 
@@ -37,26 +46,60 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Bienvenue 👋</h1>
-        <Link href="/pricing" className="text-sm text-gray-600 hover:text-gray-900">Voir les tarifs</Link>
+      {/* En-tête : titre + badge plan + lien pricing */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold">Bienvenue 👋</h1>
+          {!planLoading && (
+            <span
+              className={`rounded-md px-2 py-1 text-xs font-medium ${
+                plan === 'premium'
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'bg-amber-50 text-amber-800 border border-amber-200'
+              }`}
+              title={plan === 'premium' ? 'Plan Premium actif' : 'Plan Gratuit – 1 enfant max'}
+            >
+              Plan : {plan === 'premium' ? 'Premium' : 'Free'}
+            </span>
+          )}
+        </div>
+
+        <Link href="/pricing" className="text-sm text-gray-600 hover:text-gray-900">
+          Voir les tarifs
+        </Link>
       </div>
+
+      {/* ✅ Bannière upgrade si plan = free */}
+      {!planLoading && <UpgradeBanner plan={plan} />}
 
       {/* Ajouter un enfant */}
       <div className="rounded-xl border bg-white p-6">
-        <h2 className="mb-3 text-lg font-semibold">Ajouter un enfant</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Ajouter un enfant</h2>
+
+          {/* ✅ rappel de la limite si plan = free */}
+          {!planLoading && plan !== 'premium' && (
+            <span className="text-xs text-amber-700">
+              Plan Free : 1 enfant maximum
+            </span>
+          )}
+        </div>
+
+        {/* Ton AddChildForm gère déjà la limite côté UI */}
         <AddChildForm onAdded={refresh} />
       </div>
 
       {/* Liste des enfants */}
       <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {loading && <div className="col-span-full text-gray-500">Chargement…</div>}
+
         {!loading && children.length === 0 && (
           <div className="col-span-full rounded-xl border bg-white p-6 text-gray-700">
             Aucun enfant pour l’instant. Ajoutez-en un ci-dessus.
           </div>
         )}
-        {children.map(child => (
+
+        {children.map((child) => (
           <ChildCard key={child.id} child={child} />
         ))}
       </section>
