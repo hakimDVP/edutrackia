@@ -91,3 +91,22 @@ export function computeAverage(grades: Grade[]): number {
   if (coefSum === 0) return 0;
   return Math.round((total / coefSum) * 100) / 100;
 }
+
+// --- AI Reports ---
+export type AIReport = {
+  id?: string;
+  childId: string;
+  analysis: any; // JSON structuré renvoyé par l'IA
+  riskLevel: 'low' | 'medium' | 'high';
+  createdAt?: any;
+};
+
+export async function addAIReport(childId: string, analysis: any, riskLevel: 'low'|'medium'|'high') {
+  const ref = await addDoc(collection(db, 'aiReports'), {
+    childId,
+    analysis,
+    riskLevel,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
