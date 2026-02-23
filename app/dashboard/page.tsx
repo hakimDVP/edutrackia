@@ -2,42 +2,75 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { Child, Grade, listChildren, listGrades, computeAverage } from '@/lib/firestore';
 import AddChildForm from '@/components/AddChildForm';
 import AddGradeForm from '@/components/AddGradeForm';
 import Link from 'next/link';
-
-// ✅ nouveaux imports
+import { getIdToken } from 'firebase/auth';
 import { useUserPlan } from '@/hooks/useUserPlan';
 import UpgradeBanner from '@/components/UpgradeBanner';
 
+// --- TYPES ---
+type Child = {
+  id: string;
+  firstName: string;
+  lastName?: string;
+  gradeLevel?: string;
+};
+
+type Grade = {
+  id: string;
+  childId: string;
+  value: number;
+  subject: string;
+  createdAt: string;
+};
+
+// --- COMPUTE AVERAGE ---
+function computeAverage(grades: Grade[]) {
+  if (!grades.length) return null;
+  const sum = grades.reduce((acc, g) => acc + g.value, 0);
+  return Math.round((sum / grades.length) * 100) / 100;
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
-
-  // ✅ récupère le plan en temps réel
   const { plan, loading: planLoading } = useUserPlan();
 
   const [children, setChildren] = useState<Child[]>([]);
-  const [loading, setLoading]   = useState(true);
+  const [loading, setLoading] = useState(true);
 
+  // --- API CHILDREN ---
   const refresh = async () => {
     if (!user) return;
+
     setLoading(true);
     try {
-      const items = await listChildren(user.uid);
-      setChildren(items);
+      const token = await getIdToken(user, true);
+
+      const res = await fetch('/api/children/list', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const json = await res.json();
+      setChildren(json.children || []);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { user && refresh(); }, [user]);
+  useEffect(() => {
+    if (user) refresh();
+  }, [user]);
 
+  // --- NO USER ---
   if (!user) {
     return (
       <div className="rounded-xl border bg-white p-6">
         <p className="text-gray-700">Veuillez vous connecter.</p>
-        <Link className="mt-3 inline-block rounded-md bg-gray-900 px-4 py-2 text-white" href="/auth/login">
+        <Link
+          className="mt-3 inline-block rounded-md bg-gray-900 px-4 py-2 text-white"
+          href="/auth/login"
+        >
           Se connecter
         </Link>
       </div>
@@ -46,10 +79,11 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      {/* En-tête : titre + badge plan + lien pricing */}
+      {/* HEADER */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold">Bienvenue 👋</h1>
+
           {!planLoading && (
             <span
               className={`rounded-md px-2 py-1 text-xs font-medium ${
@@ -57,9 +91,8 @@ export default function DashboardPage() {
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                   : 'bg-amber-50 text-amber-800 border border-amber-200'
               }`}
-              title={plan === 'premium' ? 'Plan Premium actif' : 'Plan Gratuit – 1 enfant max'}
             >
-              Plan : {plan === 'premium' ? 'Premium' : 'Free'}
+              Plan : {plan}
             </span>
           )}
         </div>
@@ -69,27 +102,23 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* ✅ Bannière upgrade si plan = free */}
+      {/* BANNIÈRE PREMIUM */}
       {!planLoading && <UpgradeBanner plan={plan} />}
 
-      {/* Ajouter un enfant */}
+      {/* ADD CHILD */}
       <div className="rounded-xl border bg-white p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Ajouter un enfant</h2>
 
-          {/* ✅ rappel de la limite si plan = free */}
           {!planLoading && plan !== 'premium' && (
-            <span className="text-xs text-amber-700">
-              Plan Free : 1 enfant maximum
-            </span>
+            <span className="text-xs text-amber-700">Plan Free : 1 enfant maximum</span>
           )}
         </div>
 
-        {/* Ton AddChildForm gère déjà la limite côté UI */}
         <AddChildForm onAdded={refresh} />
       </div>
 
-      {/* Liste des enfants */}
+      {/* CHILD LIST */}
       <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {loading && <div className="col-span-full text-gray-500">Chargement…</div>}
 
@@ -99,30 +128,41 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {children.map((child) => (
-          <ChildCard key={child.id} child={child} />
-        ))}
+        {!loading &&
+          children.map((child) => <ChildCard key={child.id} child={child} />)}
       </section>
     </div>
   );
 }
 
+// ===================== CHILD CARD ======================
 function ChildCard({ child }: { child: Child }) {
   const [grades, setGrades] = useState<Grade[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
 
+  // --- API GRADES ---
   const refreshGrades = async () => {
-    if (!child.id) return;
+    if (!child.id || !user) return;
+
     setLoading(true);
     try {
-      const items = await listGrades(child.id);
-      setGrades(items);
+      const token = await getIdToken(user, true);
+
+      const res = await fetch(`/api/grades/list?childId=${child.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const json = await res.json();
+      setGrades(json.grades || []);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { refreshGrades(); }, [child.id]);
+  useEffect(() => {
+    refreshGrades();
+  }, [child.id]);
 
   const avg = computeAverage(grades);
 
@@ -133,19 +173,21 @@ function ChildCard({ child }: { child: Child }) {
           <h3 className="text-lg font-semibold">
             {child.firstName} {child.lastName || ''}
           </h3>
+
           {child.gradeLevel && (
             <p className="text-sm text-gray-600">Classe : {child.gradeLevel}</p>
           )}
         </div>
+
         <div className="rounded-md bg-indigo-50 px-3 py-1 text-sm font-medium text-indigo-700">
           Moyenne : {avg ? `${avg}/20` : '—'}
         </div>
       </div>
 
-      {/* Ajout rapide d’une note */}
+      {/* Add grade */}
       {child.id && <AddGradeForm childId={child.id} onAdded={refreshGrades} />}
 
-      {/* Lien vers la page dédiée */}
+      {/* See details */}
       <div className="text-right">
         <Link
           href={`/dashboard/children/${child.id}`}
